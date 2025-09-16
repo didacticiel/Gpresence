@@ -6,12 +6,13 @@ import { useState } from "react"
 import axiosInstance from "@/api/axiosInstance"
 
 interface PresenceCardProps {
-  presence: {
+  presence?: {
     id: number
     employe: {
       nom: string
       user: {
         username: string
+        id?: number
       }
     }
     date: string
@@ -19,36 +20,71 @@ interface PresenceCardProps {
     heure_sortie: string | null
     statut: string
   }
-  onPresenceUpdate: () => void // Callback pour rafraîchir les données
+  onPresenceUpdate: () => void
   userRole: string
   currentUserId?: number
 }
 
-export function PresenceCard({ 
-  presence, 
-  onPresenceUpdate, 
-  userRole, 
-  currentUserId 
+export function PresenceCard({
+  presence,
+  onPresenceUpdate,
+  userRole,
+  currentUserId
 }: PresenceCardProps) {
   const [loading, setLoading] = useState(false)
+
+  // 🔒 Protection : si pas de présence, afficher un message d'erreur visuel
+  if (!presence) {
+    return (
+      <Card className="border border-dashed border-red-300 bg-red-50">
+        <CardContent className="p-4 text-center text-red-700">
+          Données indisponibles
+        </CardContent>
+      </Card>
+    )
+  }
+
   const isStaff = userRole === "staff"
-  const isToday = new Date(presence.date).toDateString() === new Date().toDateString()
-  const isOwnPresence = currentUserId === presence.employe.user.id
+  const isAdmin = userRole === "admin"
+  const isManager = userRole === "manager"
+  const isRH = userRole === "rh"
+  
+  const today = new Date().toDateString()
+  const presenceDate = new Date(presence.date).toDateString()
+  const isToday = presenceDate === today
+  const isOwnPresence = currentUserId === presence.employe?.user?.id
+
+  const showMessage = (message: string, isSuccess: boolean = true) => {
+    console.log(isSuccess ? "✅" : "❌", message)
+    alert(message)
+  }
 
   const handleArrivee = async () => {
     setLoading(true)
     try {
-      if (isStaff && isOwnPresence) {
-        // Utiliser l'endpoint pour l'employé lui-même
-        await axiosInstance.post("/ma-presence/arrivee/")
+      let response
+      
+      if (isStaff && isOwnPresence && isToday) {
+        response = await axiosInstance.post("/ma-presence/arrivee/")
+      } else if (isAdmin || isManager || isRH) {
+        response = await axiosInstance.post(`/presences/${presence.id}/arrivee/`)
       } else {
-        // Utiliser l'endpoint pour les managers/admin
-        await axiosInstance.post(`/presences/${presence.id}/arrivee/`)
+        showMessage("Vous n'avez pas l'autorisation d'effectuer cette action.", false)
+        return
       }
-      onPresenceUpdate() // Rafraîchir les données
-    } catch (error) {
+
+      if (response.data.success) {
+        showMessage(response.data.message)
+        onPresenceUpdate()
+      } else {
+        showMessage(response.data.message, false)
+      }
+    } catch (error: any) {
       console.error("Erreur lors de l'enregistrement de l'arrivée:", error)
-      alert("Erreur lors de l'enregistrement de l'arrivée")
+      const message = error.response?.data?.message 
+                    || error.response?.data?.detail 
+                    || "Erreur lors de l'enregistrement de l'arrivée"
+      showMessage(message, false)
     } finally {
       setLoading(false)
     }
@@ -57,27 +93,50 @@ export function PresenceCard({
   const handleSortie = async () => {
     setLoading(true)
     try {
-      if (isStaff && isOwnPresence) {
-        // Utiliser l'endpoint pour l'employé lui-même
-        await axiosInstance.post("/ma-presence/sortie/")
+      let response
+      
+      if (isStaff && isOwnPresence && isToday) {
+        response = await axiosInstance.post("/ma-presence/sortie/")
+      } else if (isAdmin || isManager || isRH) {
+        response = await axiosInstance.post(`/presences/${presence.id}/sortie/`)
       } else {
-        // Utiliser l'endpoint pour les managers/admin
-        await axiosInstance.post(`/presences/${presence.id}/sortie/`)
+        showMessage("Vous n'avez pas l'autorisation d'effectuer cette action.", false)
+        return
       }
-      onPresenceUpdate() // Rafraîchir les données
-    } catch (error) {
+
+      if (response.data.success) {
+        showMessage(response.data.message)
+        onPresenceUpdate()
+      } else {
+        showMessage(response.data.message, false)
+      }
+    } catch (error: any) {
       console.error("Erreur lors de l'enregistrement de la sortie:", error)
-      alert("Erreur lors de l'enregistrement de la sortie")
+      const message = error.response?.data?.message 
+                    || error.response?.data?.detail 
+                    || "Erreur lors de l'enregistrement de la sortie"
+      showMessage(message, false)
     } finally {
       setLoading(false)
     }
+  }
+
+  const canShowButtons = () => {
+    if (isAdmin || isManager || isRH) return true
+    if (isStaff && isToday && isOwnPresence) return true
+    return false
+  }
+
+  const formatHeure = (heure: string | null) => {
+    if (!heure) return "–"
+    return heure.length > 5 ? heure.substring(0, 5) : heure
   }
 
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between">
-          <span className="font-semibold">{presence.employe.nom}</span>
+          <span className="font-semibold">{presence.employe?.nom || "Inconnu"}</span>
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
             presence.statut === "arrive" ? "bg-green-100 text-green-800" :
             presence.statut === "parti" ? "bg-blue-100 text-blue-800" :
@@ -93,40 +152,40 @@ export function PresenceCard({
           <CalendarIcon className="mr-2 h-4 w-4" />
           {new Date(presence.date).toLocaleDateString('fr-FR')}
         </div>
-        {presence.heure_arrivee && (
-          <div className="flex items-center text-sm">
-            <ClockIcon className="mr-2 h-4 w-4 text-green-500" />
-            <span className="font-medium">Arrivée:</span> {presence.heure_arrivee}
-          </div>
-        )}
-        {presence.heure_sortie && (
-          <div className="flex items-center text-sm">
-            <ClockIcon className="mr-2 h-4 w-4 text-blue-500" />
-            <span className="font-medium">Sortie:</span> {presence.heure_sortie}
-          </div>
-        )}
-        {(userRole === "admin" || userRole === "manager" || userRole === "rh" || (isStaff && isToday && isOwnPresence)) && (
+        
+        <div className="flex items-center text-sm">
+          <ClockIcon className="mr-2 h-4 w-4 text-green-500" />
+          <span className="font-medium">Arrivée:</span> {formatHeure(presence.heure_arrivee)}
+        </div>
+        
+        <div className="flex items-center text-sm">
+          <ClockIcon className="mr-2 h-4 w-4 text-blue-500" />
+          <span className="font-medium">Sortie:</span> {formatHeure(presence.heure_sortie)}
+        </div>
+
+        {canShowButtons() && (
           <div className="flex space-x-2 pt-2">
             {!presence.heure_arrivee && (
               <Button
                 size="sm"
                 onClick={handleArrivee}
                 disabled={loading}
-                className="bg-green-500 hover:bg-green-600 text-white"
+                className="bg-green-500 hover:bg-green-600 text-white disabled:opacity-50"
               >
                 <ClockIcon className="mr-1 h-4 w-4" />
-                {loading ? "..." : "Arrivée"}
+                {loading ? "Pointage..." : "Arrivée"}
               </Button>
             )}
+            
             {presence.heure_arrivee && !presence.heure_sortie && (
               <Button
                 size="sm"
                 onClick={handleSortie}
                 disabled={loading}
-                className="bg-blue-500 hover:bg-blue-600 text-white"
+                className="bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50"
               >
                 <ClockIcon className="mr-1 h-4 w-4" />
-                {loading ? "..." : "Sortie"}
+                {loading ? "Pointage..." : "Sortie"}
               </Button>
             )}
           </div>

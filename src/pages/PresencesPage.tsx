@@ -11,7 +11,6 @@ import { PresenceCard } from "@/components/ui/PresenceCard"
 import {
   RefreshCwIcon,
   PlusIcon,
- // CalendarIcon,
   ClockIcon,
   UsersIcon,
   CheckCircleIcon,
@@ -20,12 +19,12 @@ import {
   SearchIcon,
   FilterIcon
 } from "lucide-react"
-//import { format } from "date-fns"
 
 export default function PresencesPage() {
   const [presences, setPresences] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<{ id: number; username: string; role: string } | null>(null)
+  const [myPresence, setMyPresence] = useState<any>(null) // Pour la présence de l'utilisateur connecté
   const [stats, setStats] = useState({
     total: 0,
     arrived: 0,
@@ -41,10 +40,21 @@ export default function PresencesPage() {
   useEffect(() => {
     const storedUser = localStorage.getItem("user")
     if (storedUser) {
-      setUser(JSON.parse(storedUser))
+      const userData = JSON.parse(storedUser)
+      setUser(userData)
+      
+      // Si c'est un staff, charger sa présence du jour
+      if (userData.role === "staff") {
+        loadMyPresence()
+      }
     }
     fetchPresences()
   }, [])
+
+  // Recharger les données quand les filtres changent
+  useEffect(() => {
+    fetchPresences()
+  }, [filters])
 
   const fetchPresences = async () => {
     try {
@@ -57,6 +67,7 @@ export default function PresencesPage() {
       const response = await axiosInstance.get(`/presences/?${params.toString()}`)
       setPresences(response.data)
       
+      // Calculer les stats
       const total = response.data.length
       const arrived = response.data.filter((p: any) => p.statut === "arrive").length
       const left = response.data.filter((p: any) => p.statut === "parti").length
@@ -70,35 +81,89 @@ export default function PresencesPage() {
     }
   }
 
-  const handleArrivee = async (id: number) => {
+  const loadMyPresence = async () => {
     try {
-      await axiosInstance.post(`/presences/${id}/arrivee/`)
-      fetchPresences()
+      const response = await axiosInstance.get("/ma-presence/")
+      if (response.data.success && response.data.presence) {
+        setMyPresence(response.data.presence)
+      } else {
+        setMyPresence(null)
+      }
     } catch (error) {
-      console.error("Erreur lors de l'enregistrement de l'arrivée:", error)
-    }
-  }
-
-  const handleSortie = async (id: number) => {
-    try {
-      await axiosInstance.post(`/presences/${id}/sortie/`)
-      fetchPresences()
-    } catch (error) {
-      console.error("Erreur lors de l'enregistrement de la sortie:", error)
+      console.error("Erreur lors du chargement de ma présence:", error)
+      setMyPresence(null)
     }
   }
 
   const handleCreateMyPresence = async () => {
     try {
-      await axiosInstance.post("/ma-presence/")
-      fetchPresences()
-    } catch (error) {
+      const response = await axiosInstance.post("/ma-presence/")
+      if (response.data.success) {
+        alert(response.data.message)
+        setMyPresence(response.data.presence)
+        fetchPresences() // Recharger la liste
+      } else {
+        alert(response.data.message)
+      }
+    } catch (error: any) {
       console.error("Erreur lors de la création de la présence:", error)
+      if (error.response?.data?.message) {
+        alert(error.response.data.message)
+      } else {
+        alert("Erreur lors de la création de la présence")
+      }
+    }
+  }
+
+  const handleMyArrivee = async () => {
+    try {
+      const response = await axiosInstance.post("/ma-presence/arrivee/")
+      if (response.data.success) {
+        alert(response.data.message)
+        setMyPresence(response.data.presence)
+        fetchPresences() // Recharger la liste
+      } else {
+        alert(response.data.message)
+      }
+    } catch (error: any) {
+      console.error("Erreur lors du pointage arrivée:", error)
+      if (error.response?.data?.message) {
+        alert(error.response.data.message)
+      } else {
+        alert("Erreur lors du pointage de l'arrivée")
+      }
+    }
+  }
+
+  const handleMySortie = async () => {
+    try {
+      const response = await axiosInstance.post("/ma-presence/sortie/")
+      if (response.data.success) {
+        alert(response.data.message)
+        setMyPresence(response.data.presence)
+        fetchPresences() // Recharger la liste
+      } else {
+        alert(response.data.message)
+      }
+    } catch (error: any) {
+      console.error("Erreur lors du pointage sortie:", error)
+      if (error.response?.data?.message) {
+        alert(error.response.data.message)
+      } else {
+        alert("Erreur lors du pointage de la sortie")
+      }
     }
   }
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handlePresenceUpdate = () => {
+    fetchPresences()
+    if (user?.role === "staff") {
+      loadMyPresence()
+    }
   }
 
   if (loading) {
@@ -119,6 +184,7 @@ export default function PresencesPage() {
         </Button>
       </div>
 
+      {/* Filtres */}
       <Card>
         <CardContent className="pt-6">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -163,6 +229,7 @@ export default function PresencesPage() {
         </CardContent>
       </Card>
 
+      {/* Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total présences"
@@ -190,36 +257,77 @@ export default function PresencesPage() {
         />
       </div>
 
+      {/* Section employé - Mon pointage */}
       {user?.role === "staff" && (
         <Card>
           <CardHeader>
-            <CardTitle>Votre présence aujourd'hui</CardTitle>
+            <CardTitle>Mon pointage aujourd'hui</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {/* Affichage de ma présence si elle existe */}
+            {myPresence && (
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium">Ma présence du {new Date().toLocaleDateString('fr-FR')}</h4>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    myPresence.statut === "arrive" ? "bg-green-100 text-green-800" :
+                    myPresence.statut === "parti" ? "bg-blue-100 text-blue-800" :
+                    "bg-red-100 text-red-800"
+                  }`}>
+                    {myPresence.statut === "arrive" ? "Arrivé" :
+                     myPresence.statut === "parti" ? "Parti" : "Absent"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium">Arrivée:</span> 
+                    <span className="ml-1">{myPresence.heure_arrivee || "Non pointée"}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium">Sortie:</span>
+                    <span className="ml-1">{myPresence.heure_sortie || "Non pointée"}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Boutons d'action */}
             <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
-              <Button onClick={handleCreateMyPresence} className="bg-primary hover:bg-primary/90">
-                <PlusIcon className="mr-2 h-4 w-4" />
-                Créer ma présence
-              </Button>
-              <Button
-                onClick={() => window.location.href = "/dashboard/presences/ma-presence/arrivee/"}
-                className="bg-green-500 hover:bg-green-600"
-              >
-                <ClockIcon className="mr-2 h-4 w-4" />
-                Marquer mon arrivée
-              </Button>
-              <Button
-                onClick={() => window.location.href = "/dashboard/presences/ma-presence/sortie/"}
-                className="bg-blue-500 hover:bg-blue-600"
-              >
-                <ClockIcon className="mr-2 h-4 w-4" />
-                Marquer ma sortie
-              </Button>
+              {!myPresence && (
+                <Button 
+                  onClick={handleCreateMyPresence} 
+                  className="bg-primary hover:bg-primary/90"
+                >
+                  <PlusIcon className="mr-2 h-4 w-4" />
+                  Créer ma présence
+                </Button>
+              )}
+              
+              {(!myPresence || !myPresence.heure_arrivee) && (
+                <Button
+                  onClick={handleMyArrivee}
+                  className="bg-green-500 hover:bg-green-600"
+                >
+                  <ClockIcon className="mr-2 h-4 w-4" />
+                  Pointer mon arrivée
+                </Button>
+              )}
+              
+              {myPresence && myPresence.heure_arrivee && !myPresence.heure_sortie && (
+                <Button
+                  onClick={handleMySortie}
+                  className="bg-blue-500 hover:bg-blue-600"
+                >
+                  <ClockIcon className="mr-2 h-4 w-4" />
+                  Pointer ma sortie
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
+      {/* Liste des présences */}
       <Card>
         <CardHeader>
           <CardTitle>
@@ -236,9 +344,9 @@ export default function PresencesPage() {
                 <PresenceCard
                   key={presence.id}
                   presence={presence}
-                  onArriveeClick={handleArrivee}
-                  onSortieClick={handleSortie}
+                  onPresenceUpdate={handlePresenceUpdate}
                   userRole={user?.role || "staff"}
+                  currentUserId={user?.id}
                 />
               ))}
             </div>
